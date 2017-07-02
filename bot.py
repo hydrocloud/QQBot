@@ -58,28 +58,64 @@ def handle_group_message(msg):
     global watched_group_messages
 
     parts = text.split(" ")
-    if parts[0] == "/subscribe":
+    if parts[0] == "/subscribe" or parts[0] == "/unsubscribe":
         try:
             subscribe_type = parts[1]
+            op = None
+
             if subscribe_type == "from":
                 from_qq = parts[2]
-                add_group_subscription(qq, {
+                op = {
+                    "qq": qq,
+                    "from_group": group,
                     "type": "from",
                     "from_qq": from_qq
-                })
-                qqbot.send(SendGroupMessage(group = group, text = "订阅成功。"))
+                }
+            elif subscribe_type == "keyword":
+                kw = parts[2]
+                op = {
+                    "qq": qq,
+                    "from_group": group,
+                    "type": "keyword",
+                    "keyword": kw
+                }
             else:
                 qqbot.send(SendGroupMessage(group = group, text = "未知的订阅类型。"))
+                return
+
+            current = db.group_subscriptions.find_one(op)
+
+            if parts[0] == "/subscribe":
+                if current != None:
+                    qqbot.send(SendGroupMessage(group = group, text = "消息订阅记录已存在。"))
+                else:
+                    db.group_subscriptions.insert_one(op)
+                    qqbot.send(SendGroupMessage(group = group, text = "订阅成功。"))
+            else:
+                if current == None:
+                    qqbot.send(SendGroupMessage(group = group, text = "消息订阅记录不存在。"))
+                else:
+                    db.group_subscriptions.delete_many(op)
+                    qqbot.send(SendGroupMessage(group = group, text = "取消订阅成功。"))
+
         except Exception as e:
             print(e)
             qqbot.send(SendGroupMessage(group = group, text = "订阅失败。"))
     else:
-        for ss in db.group_subscriptions.find({ "type": "from" }):
-            if ss["from_qq"] == qq:
+        for ss in db.group_subscriptions.find({ "type": "from", "from_group": group, "from_qq": qq }):
+            watched_group_messages.append({
+                "qq": ss["qq"],
+                "from_group": group,
+                "from_qq": qq,
+                "content": text,
+                "create_time": current_time
+            })
+        for ss in db.group_subscriptions.find({ "type": "keyword", "from_group": group }):
+            if ss["keyword"] in text:
                 watched_group_messages.append({
                     "qq": ss["qq"],
-                    "from_qq": qq,
                     "from_group": group,
+                    "from_qq": qq,
                     "content": text,
                     "create_time": current_time
                 })
@@ -104,12 +140,6 @@ def handle_private_message(msg):
             qqbot.send(SendPrivateMessage(qq = qq, text = r["msg"]))
         else:
             qqbot.send(SendPrivateMessage(qq = qq, text = "关联成功。"))
-
-def add_group_subscription(qq, details):
-    details["qq"] = qq
-    #if len(list(db.group_subscriptions.find({ "qq": qq }))) >= 5:
-    #    raise Exception("订阅数量过多。")
-    db.group_subscriptions.insert_one(details)
 
 def update_watched_group_messages():
     global watched_group_messages
